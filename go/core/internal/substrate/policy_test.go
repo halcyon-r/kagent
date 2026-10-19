@@ -9,11 +9,29 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
 )
 
+const testControlPlaneURL = "http://kagent-controller.kagent.svc:8083"
+
+func TestActorPolicyRequiresControlPlaneOrigin(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		url  string
+	}{
+		{"missing", ""},
+		{"invalid", "kagent-controller.kagent.svc:8083"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			policy, err := ActorEgressPolicy("team", nil, nil, test.url)
+			require.ErrorContains(t, err, "invalid runtime control-plane origin")
+			require.Nil(t, policy)
+		})
+	}
+}
+
 func TestActorPolicyKeepsCredentialsOnExactOrigin(t *testing.T) {
 	policy, err := ActorEgressPolicy("team", []string{"https://*.example.com", "https://api.example.com:443", "https://api.example.com:8443", "http://api.example.com"}, []egress.Credential{
 		{Origin: "https://api.example.com", Header: "authorization", Prefix: "Bearer ", URI: "ate-secret://k8s.io/default/team/auth/token"},
 		{Origin: "https://api.example.com:8443", Header: "x-api-key", URI: "ate-secret://k8s.io/default/team/other/key"},
-	}, "")
+	}, testControlPlaneURL)
 	require.NoError(t, err)
 	require.Len(t, policy.Rules, 4)
 	require.Empty(t, policy.Rules[0].GetHttp().GetEffects().GetReplaceHeaders())
@@ -30,7 +48,7 @@ func TestActorPolicyKeepsCredentialsOnExactOrigin(t *testing.T) {
 }
 
 func TestActorPolicyInjectsRuntimeJWTOnlyAtControlPlane(t *testing.T) {
-	const controlPlane = "http://kagent-controller.kagent.svc:8083"
+	const controlPlane = testControlPlaneURL
 	policy, err := ActorEgressPolicy("team", []string{controlPlane, "https://models.example"}, []egress.Credential{
 		{Origin: controlPlane, Header: "authorization", URI: "ate-secret://k8s.io/default/team/auth/token"},
 	}, "http://KAGENT-CONTROLLER.kagent.svc.:8083")
