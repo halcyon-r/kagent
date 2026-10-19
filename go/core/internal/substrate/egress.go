@@ -32,7 +32,7 @@ func (c *Client) EnsureActorEgressPolicy(ctx context.Context, atespace, name, re
 		if err != nil {
 			return fmt.Errorf("load intended actor egress: %w", err)
 		}
-		policy, err := ActorEgressPolicy(atespace, access.Destinations, access.Credentials)
+		policy, err := ActorEgressPolicy(atespace, access.Destinations, access.Credentials, c.cfg.ControlPlaneURL)
 		if err != nil {
 			return err
 		}

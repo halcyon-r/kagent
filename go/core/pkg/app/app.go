@@ -149,6 +149,8 @@ func SetupLogger(level string) error {
 // fails. It returns the first error rather than exiting, so a library consumer
 // keeps control of how the process ends.
 func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	if input == nil {
 		return fmt.Errorf("controller configuration is required")
 	}
@@ -277,16 +279,21 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 		return err
 	}
 	actors, err := substrate.Dial(ctx, substrate.Config{
-		EgressPolicies: store,
-		AteAPIEndpoint: cfg.GetSubstrate().GetApiEndpoint(),
-		CAFile:         cfg.GetSubstrate().GetCaFile(),
-		ClientCertFile: cfg.GetSubstrate().GetClientCertFile(),
-		CallTimeout:    30 * time.Second,
+		EgressPolicies:  store,
+		ControlPlaneURL: cfg.GetRuntimeDefaults().GetControlPlaneUrl(),
+		AteAPIEndpoint:  cfg.GetSubstrate().GetApiEndpoint(),
+		CAFile:          cfg.GetSubstrate().GetCaFile(),
+		ClientCertFile:  cfg.GetSubstrate().GetClientCertFile(),
+		CallTimeout:     30 * time.Second,
 	})
 	if err != nil {
 		return err
 	}
 	defer actors.Close()
+	actorVerifier, err := substrate.NewActorJWTVerifier(ctx, cfg.GetSubstrate().GetActorJwtIssuer(), cfg.GetSubstrate().GetCaFile())
+	if err != nil {
+		return fmt.Errorf("configure runtime authentication: %w", err)
+	}
 	reconciler, err := controller.NewReconciler(kubeConfig, runtime.Collections, store, actors)
 	if err != nil {
 		return err
@@ -415,7 +422,7 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 		BindAddress:           cfg.GetServer().GetBindAddress(),
 		Reflection:            cfg.GetServer().GetGrpcReflection(),
 		Authenticator:         authenticator,
-		RuntimeAuthenticator:  &taskstore.Authenticator{},
+		RuntimeAuthenticator:  taskstore.NewAuthenticator(actorVerifier),
 		ShareStore:            store,
 		ModelService:          models,
 		ToolService:           tools,
